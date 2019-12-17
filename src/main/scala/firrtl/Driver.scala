@@ -12,7 +12,7 @@ import firrtl.transforms._
 import firrtl.Utils.throwInternalError
 import firrtl.stage.{FirrtlExecutionResultView, FirrtlStage}
 import firrtl.stage.phases.DriverCompatibility
-import firrtl.options.{StageUtils, Phase, Viewer}
+import firrtl.options.{Dependency, Phase, PhaseManager, StageUtils, Viewer}
 import firrtl.options.phases.DeletedWrapper
 import firrtl.FileUtils
 
@@ -211,13 +211,17 @@ object Driver {
 
     val annos = optionsManager.firrtlOptions.toAnnotations ++ optionsManager.commonOptions.toAnnotations
 
-    val phases: Seq[Phase] =
-      Seq( new DriverCompatibility.AddImplicitAnnotationFile,
-           new DriverCompatibility.AddImplicitFirrtlFile,
-           new DriverCompatibility.AddImplicitOutputFile,
-           new DriverCompatibility.AddImplicitEmitter,
-           new FirrtlStage )
+    val phases: Seq[Phase] = {
+      import DriverCompatibility._
+      new PhaseManager(
+        Seq( Dependency[AddImplicitFirrtlFile],
+             Dependency[AddImplicitAnnotationFile],
+             Dependency[AddImplicitOutputFile],
+             Dependency[AddImplicitEmitter],
+             Dependency[FirrtlStage] ))
+        .transformOrder
         .map(DeletedWrapper(_))
+    }
 
     val annosx = try {
       phases.foldLeft(annos)( (a, p) => p.transform(a) )
@@ -258,4 +262,3 @@ object Driver {
     execute(args)
   }
 }
-

@@ -9,6 +9,7 @@ import firrtl.traversals.Foreachers._
 import firrtl.annotations.{ReferenceTarget, TargetToken}
 import firrtl.Utils.toTarget
 import firrtl.passes.{Pass, PassException, Errors, InferTypes}
+import firrtl.options.Dependency
 
 import scala.collection.mutable
 import scala.util.Try
@@ -81,8 +82,21 @@ object InferResets {
   */
 // TODO should we error if a DefMemory is of type AsyncReset? In CheckTypes?
 class InferResets extends Transform {
-  def inputForm: CircuitForm = HighForm
-  def outputForm: CircuitForm = HighForm
+
+  def inputForm: CircuitForm = UnknownForm
+  def outputForm: CircuitForm = UnknownForm
+
+  override val prerequisites =
+    Seq( Dependency(passes.ResolveKinds),
+         Dependency(passes.InferTypes),
+         Dependency(passes.Uniquify),
+         Dependency(passes.ResolveFlows),
+         Dependency[passes.InferWidths] ) ++ stage.Forms.WorkingIR
+
+  override def invalidates(a: Transform): Boolean = a match {
+    case _: checks.CheckResets | passes.CheckTypes => true
+    case _                                         => false
+  }
 
   import InferResets._
 
