@@ -48,8 +48,8 @@ class ResolveAndCheck extends CoreTransform {
     new passes.InferBinaryPoints(),
     new passes.TrimIntervals(),
     new passes.InferWidths,
-    passes.CheckWidths,
-    new firrtl.transforms.InferResets)
+    passes.CheckWidths
+  )
 }
 
 /** Expands aggregate connects, removes dynamic accesses, and when
@@ -69,9 +69,9 @@ class HighFirrtlToMiddleFirrtl extends CoreTransform {
     passes.ExpandWhens,
     passes.CheckInitialization,
     passes.ResolveKinds,
-    passes.InferTypes,
-    passes.CheckTypes,
     passes.ResolveFlows,
+    new firrtl.transforms.InferResets,
+    passes.CheckTypes,
     new passes.InferWidths,
     passes.CheckWidths,
     new passes.RemoveIntervals(),

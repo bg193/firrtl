@@ -12,8 +12,21 @@ import FirrtlCheckers._
 // - Test nodes in the connection
 // - Test with whens (is this allowed?)
 class InferResetsSpec extends FirrtlFlatSpec {
-  def compile(input: String, compiler: Compiler = new MiddleFirrtlCompiler): CircuitState =
-    compiler.compileAndEmit(CircuitState(parse(input), ChirrtlForm), List.empty)
+  import _root_.logger.{ClassLogLevelAnnotation, Logger, LogLevel, LogLevelAnnotation}
+
+  def compile(input: String, compiler: Compiler = new MiddleFirrtlCompiler): CircuitState = {
+    val gll = LogLevel.None
+    val ll = LogLevel.None
+    Logger.makeScope(Seq(LogLevelAnnotation(gll),
+                         ClassLogLevelAnnotation("firrtl.passes.ReplaceAccesses$", ll),
+                         ClassLogLevelAnnotation("firrtl.passes.ExpandConnects$", ll),
+                         ClassLogLevelAnnotation("firrtl.transforms.InferResets", ll),
+                         ClassLogLevelAnnotation("firrtl.passes.ExpandWhens$", ll),
+                         ClassLogLevelAnnotation("firrtl.passes.InferTypes$", ll),
+                         ClassLogLevelAnnotation("firrtl.ResolveAndCheck", ll))) {
+      compiler.compileAndEmit(CircuitState(parse(input), ChirrtlForm), List.empty)
+    }
+  }
 
   behavior of "ResetType"
 
@@ -189,8 +202,8 @@ class InferResetsSpec extends FirrtlFlatSpec {
   }
 
   it should "not allow different Reset Types to drive a single Reset" in {
-    an [InferResets.DifferingDriverTypesException] shouldBe thrownBy {
-      val result = compile(s"""
+    val passExceptions = the [passes.PassExceptions] thrownBy {
+      compile(s"""
         |circuit top :
         |  module top :
         |    input reset0 : AsyncReset
@@ -207,6 +220,8 @@ class InferResetsSpec extends FirrtlFlatSpec {
         |""".stripMargin
       )
     }
+    passExceptions.exceptions should contain (_: CheckTypes.MuxSameType)
+    passExceptions.exceptions should contain (_: CheckTypes.InvalidRegInit)
   }
 
   it should "allow concrete reset types to overrule invalidation" in {
@@ -411,4 +426,3 @@ class InferResetsSpec extends FirrtlFlatSpec {
     result should containTree { case Port(_, "childReset", Input, AsyncResetType) => true }
   }
 }
-

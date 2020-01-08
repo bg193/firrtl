@@ -81,8 +81,8 @@ object InferResets {
   */
 // TODO should we error if a DefMemory is of type AsyncReset? In CheckTypes?
 class InferResets extends Transform {
-  def inputForm: CircuitForm = HighForm
-  def outputForm: CircuitForm = HighForm
+  def inputForm: CircuitForm = MidForm
+  def outputForm: CircuitForm = MidForm
 
   import InferResets._
 
@@ -108,9 +108,10 @@ class InferResets extends Transform {
       def onStmt(map: DriverMap)(stmt: Statement): Unit = {
         // Mark driver of a ResetType leaf
         def markResetDriver(lhs: Expression, rhs: Expression): Unit = {
-          val con = Utils.flow(lhs) match {
-            case SinkFlow   if lhs.tpe == ResetType => Some((lhs, rhs))
-            case SourceFlow if rhs.tpe == ResetType => Some((rhs, lhs))
+          val con = (Utils.flow(lhs), Utils.kind(lhs)) match {
+            case (SinkFlow, _)   if lhs.tpe == ResetType => Some((lhs, rhs))
+            case (SourceFlow, NodeKind) if rhs.tpe == ResetType => Some((lhs, rhs))
+            case (SourceFlow, _) if rhs.tpe == ResetType => Some((rhs, lhs))
             // If sink is not ResetType, do nothing
             case _                                  => None
           }
@@ -130,6 +131,7 @@ class InferResets extends Transform {
             val locs = Utils.create_exps(lhs)
             val exps = Utils.create_exps(rhs)
             for ((loc, exp) <- locs.zip(exps)) {
+              logger.trace(s"${loc.toString} -> ${exp.toString}")
               markResetDriver(loc, exp)
             }
           case PartialConnect(_, lhs, rhs) =>
@@ -163,6 +165,12 @@ class InferResets extends Transform {
               val values = conLookup(key).getOrElse(Nil) ++ altLookup(key).getOrElse(Nil)
               map(key) = values
             }
+          case lhs@ DefNode(_, _, rhs) => rhs match {
+            case Mux(_, tval, fval, _) =>
+              markResetDriver(WRef(lhs), tval)
+              markResetDriver(WRef(lhs), fval)
+            case _ => markResetDriver(WRef(lhs), rhs)
+          }
           case other => other.foreach(onStmt(map))
         }
       }
@@ -263,6 +271,9 @@ class InferResets extends Transform {
   def execute(state: CircuitState): CircuitState = {
     val c = state.circuit
     val analysis = analyze(c)
+    analysis.foreach {
+      case (k, v) => logger.trace(s"""${k.serialize} -> ${v.mkString(", ")}""")
+    }
     val inferred = resolve(analysis)
     val result = inferred.map(m => implement(c, m)).get
     val fixedup = fixupPasses.foldLeft(result)((c, p) => p.run(c))
