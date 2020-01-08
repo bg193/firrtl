@@ -3,10 +3,12 @@
 package firrtl.transforms
 
 import firrtl._
+import firrtl.analyses.InstanceGraph
 import firrtl.ir._
 import firrtl.Mappers._
 import firrtl.traversals.Foreachers._
-import firrtl.annotations.{ReferenceTarget, TargetToken}
+import firrtl.annotations.{CircuitTarget, CompleteTarget, ModuleTarget, ReferenceTarget, Target, TargetToken}
+import firrtl.annotations.transforms.{EliminateTargetPaths, ResolvePaths}
 import firrtl.Utils.toTarget
 import firrtl.passes.{Pass, PassException, Errors, InferTypes}
 
@@ -264,7 +266,7 @@ class InferResets extends Transform {
     c.map(onMod)
   }
 
-  private def fixupPasses: Seq[Pass] = Seq(
+  private def invalidatePasses: Seq[Pass] = Seq(
     InferTypes
   )
 
@@ -276,7 +278,55 @@ class InferResets extends Transform {
     }
     val inferred = resolve(analysis)
     val result = inferred.map(m => implement(c, m)).get
-    val fixedup = fixupPasses.foldLeft(result)((c, p) => p.run(c))
+    val fixedup = invalidatePasses.foldLeft(result)((c, p) => p.run(c))
     state.copy(circuit = fixedup)
   }
+}
+
+object ResolveResets extends Transform {
+  override def inputForm = UnknownForm
+  override def outputForm = UnknownForm
+
+  override protected def execute(a: CircuitState): CircuitState = {
+    val iGraph = new InstanceGraph(a.circuit)
+
+    def onStatement( current: ModuleTarget,
+                     abstractModules: mutable.Set[ModuleTarget],
+                     resolves: mutable.Set[CompleteTarget] )
+                   ( s: Statement ): Statement = {
+
+      s.map(onStatement(current, abstractModules, resolves)) match {
+        case WDefInstance(_, name, module, _) if abstractModules.contains(ModuleTarget(current.circuitOpt.get, module)) =>
+          resolves += current.instOf(name, module)
+        case _ =>
+      }
+
+      s
+
+    }
+
+    val circuitTarget = CircuitTarget(a.circuit.main)
+
+    val targets = iGraph.moduleOrder.reverse.foldLeft((mutable.Set.empty[ModuleTarget], mutable.Set.empty[CompleteTarget])) {
+      case ((t: mutable.Set[ModuleTarget], c: mutable.Set[CompleteTarget]), m) =>
+        t ++= m.ports.collectFirst {
+          case Port(_, _, _, ResetType) => ModuleTarget(a.circuit.main, m.name)
+        }.toSeq
+
+        m match {
+          case Module(_, name, _, body) => m.map(onStatement(circuitTarget.module(name), t, c))
+          case _ => m
+        }
+
+        (t, c)
+    }
+
+    if (targets._2.nonEmpty) {
+      a.copy(annotations = ResolvePaths(targets._2.toSeq) +: a.annotations)
+    } else {
+      a
+    }
+
+  }
+
 }
